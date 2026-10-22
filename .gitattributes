@@ -1,0 +1,12 @@
+# Auto-detect text files and normalize line endings to LF
+* text=auto eol=lf
+
+# Explicit binary files
+*.keras binary
+*.h5 binary
+*.joblib binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.pptx binary

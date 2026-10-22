@@ -1,6 +1,7 @@
 """Reporting helpers: metrics, plots, and JSON saving."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
@@ -134,3 +135,41 @@ def plot_misclassified(x_raw, y_true, y_pred, class_names, save_path, n=16):
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(save_path)
     plt.close(fig)
+
+
+def build_prediction_report(prediction, metadata, input_source, invert, test_metrics=None):
+    """Build a comprehensive, JSON-serializable prediction report."""
+    # Copy only keys that actually exist in metadata
+    model_info = {}
+    if isinstance(metadata, dict):
+        for k, v in metadata.items():
+            model_info[k] = v
+
+    # Extract test metrics summary if provided (only keys that actually exist)
+    test_metrics_summary = None
+    if test_metrics and isinstance(test_metrics, dict):
+        test_metrics_summary = {}
+        for key in ["accuracy", "macro_precision", "macro_recall", "macro_f1"]:
+            if key in test_metrics:
+                test_metrics_summary[key] = test_metrics[key]
+
+    return {
+        "report_version": "1.0",
+        "utc_timestamp": datetime.now(timezone.utc).isoformat(),
+        "input_source": str(input_source),
+        "invert": bool(invert),
+        "prediction": {
+            "predicted_class": prediction.get("predicted_class"),
+            "predicted_index": int(prediction.get("predicted_index")),
+            "confidence": float(prediction.get("confidence")),
+            "top_k": prediction.get("top_k", []),
+            "all_scores": prediction.get("all_scores", []),
+        },
+        "model": model_info,
+        "test_metrics": test_metrics_summary,
+        "disclaimer": (
+            "This model was trained on standardized 28x28 grayscale Fashion-MNIST images "
+            "and is not reliable on arbitrary real-world clothing photographs."
+        ),
+    }
+

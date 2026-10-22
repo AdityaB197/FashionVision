@@ -15,3 +15,7 @@ __pycache__/
 .DS_Store
 
 # NOTE: models/ and results/ are NOT ignored — we want to track them.
+
+# v2 real datasets and temporary directories
+data/
+tmp_real/
