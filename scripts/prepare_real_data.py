@@ -10,10 +10,12 @@ Also supports a --synthetic flag for local offline plumbing verification without
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Add project root to sys.path
@@ -174,11 +176,32 @@ def split_dataset(df, seed=42):
     return train_df, val_df, test_df, "plain_stratified"
 
 
+def _process_single_image(file_path, dest_file, img_size):
+    """Worker function for threaded image processing."""
+    try:
+        dest_file = Path(dest_file)
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(file_path) as img:
+            img = ImageOps.exif_transpose(img)
+            img = img.convert("RGB")
+            img = img.resize((img_size, img_size), Image.Resampling.LANCZOS)
+            img.save(dest_file, format="JPEG", quality=95)
+        return dest_file.parent.name, True
+    except Exception as e:
+        return str(e), False
+
+
 def process_and_save_images(split_df, split_name, images_dir, output_dir, img_size=224):
-    """Open, transpose, convert to RGB, resize with LANCZOS, and save each image."""
+    """Open, transpose, convert to RGB, resize with LANCZOS, and save each image.
+
+    Uses threaded processing for ~2-4x speedup. PIL releases the GIL during
+    JPEG decode/encode, so threads give real parallelism for image I/O.
+    """
     split_dir = Path(output_dir) / split_name
     counts = Counter()
 
+    # Build work items list
+    work_items = []
     for _, row in split_df.iterrows():
         img_id = str(row["image"]).strip()
         label = str(row["label"]).strip()
@@ -192,17 +215,33 @@ def process_and_save_images(split_df, split_name, images_dir, output_dir, img_si
                 continue
 
         dest_file = split_dir / label / f"{Path(img_id).stem}.jpg"
-        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        work_items.append((str(file_path), str(dest_file), img_size))
 
-        try:
-            with Image.open(file_path) as img:
-                img = ImageOps.exif_transpose(img)
-                img = img.convert("RGB")
-                img = img.resize((img_size, img_size), Image.Resampling.LANCZOS)
-                img.save(dest_file, format="JPEG", quality=95)
-                counts[label] += 1
-        except Exception as e:
-            print(f"Warning: Failed processing {file_path}: {e}")
+    if not work_items:
+        return dict(counts)
+
+    # Scale threads: on Colab (2 vCPUs), 8 threads keep CPUs fully loaded during I/O and PIL ops
+    num_workers = min(16, max(4, (os.cpu_count() or 2) * 4), len(work_items))
+    done = 0
+    total = len(work_items)
+    failed = 0
+
+    print(f"  [{split_name}] Processing {total} images using {num_workers} threads...")
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = {
+            executor.submit(_process_single_image, fp, dp, sz): (fp, dp, sz)
+            for fp, dp, sz in work_items
+        }
+        for future in as_completed(futures):
+            label_or_err, success = future.result()
+            if success:
+                counts[label_or_err] += 1
+            else:
+                failed += 1
+            done += 1
+            if done % 200 == 0 or done == total:
+                print(f"  [{split_name}] {done}/{total} images processed ({failed} failed)")
 
     return dict(counts)
 
@@ -215,7 +254,14 @@ def main():
     parser.add_argument("--img-size", type=int, default=224, help="Target image size (square).")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--synthetic", action="store_true", help="Generate tiny synthetic data for plumbing tests.")
+    parser.add_argument("--skip-if-exists", action="store_true", help="Skip preparation if output directory already contains valid split_summary.json.")
     args = parser.parse_args()
+
+    output_path = Path(args.output_dir)
+    summary_file = output_path / "split_summary.json"
+    if args.skip_if_exists and summary_file.is_file():
+        print(f"[SKIP] Prepared data already found at '{output_path.resolve()}'. Skipping re-preparation.")
+        return
 
     temp_synthetic_dir = None
     if args.synthetic:

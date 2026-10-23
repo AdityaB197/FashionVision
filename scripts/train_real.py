@@ -43,16 +43,25 @@ def main():
     np.random.seed(args.seed)
     tf.random.set_seed(args.seed)
 
-    # 2. Hardware inspection
+    # 2. Hardware inspection and GPU optimization
     gpus = tf.config.list_physical_devices("GPU")
     gpu_names = [gpu.name for gpu in gpus]
     print(f"=== Hardware Environment ===")
     if gpus:
         print(f"GPUs detected: {gpu_names}")
+        # Allow GPU memory to grow on demand instead of grabbing all VRAM upfront
+        for gpu in gpus:
+            try:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            except RuntimeError:
+                pass  # Memory growth must be set before GPUs are initialized
+        # Mixed precision: use float16 on GPU for ~2x throughput on T4/A100
+        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+        print("Mixed precision enabled (float16 compute, float32 storage)")
     else:
         print("WARNING: No GPU detected. Training will run on CPU, which will be significantly slower.")
 
-    # 3. Load datasets (Do NOT touch the test split during training!)
+    # 3. Load datasets — skip the test split during training (saves time, prevents leakage)
     data_path = Path(args.data_dir)
     print(f"\nLoading training and validation sets from '{data_path.resolve()}'...")
     train_ds, val_ds, _, class_names = load_datasets(
@@ -60,6 +69,7 @@ def main():
         img_size=(224, 224),
         batch_size=args.batch_size,
         seed=args.seed,
+        load_splits=("train", "val"),
     )
     print(f"Loaded {len(class_names)} classes: {class_names}")
 

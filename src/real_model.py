@@ -61,7 +61,9 @@ def build_real_model(num_classes, img_size=(224, 224)):
     # Classification head
     x = layers.GlobalAveragePooling2D(name="global_avg_pool")(x)
     x = layers.Dropout(0.3, name="head_dropout")(x)
-    outputs = layers.Dense(num_classes, activation="softmax", name="predictions")(x)
+    # dtype="float32" on the output layer ensures numerical stability with mixed precision.
+    # Softmax in float16 can overflow (exp() has a narrow range in float16).
+    outputs = layers.Dense(num_classes, activation="softmax", dtype="float32", name="predictions")(x)
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs, name="fashionvision_v2_mobilenet")
 
