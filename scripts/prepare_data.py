@@ -113,10 +113,10 @@ def find_dataset_files(source_dir):
     csv_path = csv_candidates[0]
 
     # Search for image directory candidates.
-    # The Kaggle clothing-dataset-full dataset uses 'images_original' or 'images_compressed' or 'images'.
+    # The Kaggle dataset contains both 'images_compressed' (fast, optimized for ML) and 'images_original'.
     images_dir = None
     search_dirs = [csv_path.parent, source_path]
-    folder_names = ["images_original", "images_compressed", "images", "img"]
+    folder_names = ["images_compressed", "images", "images_original", "img"]
 
     for parent in search_dirs:
         for fname in folder_names:
@@ -128,7 +128,7 @@ def find_dataset_files(source_dir):
             break
 
     if not images_dir:
-        # Search recursively for folder named images_original, images_compressed, or images
+        # Search recursively for folder named images_compressed, images, or images_original
         for fname in folder_names:
             candidates = [d for d in source_path.rglob(fname) if d.is_dir() and any(d.glob("*.jpg"))]
             if candidates:
@@ -207,21 +207,24 @@ def _process_single_image(file_path, dest_file, img_size):
         with Image.open(file_path) as img:
             img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
-            img = img.resize((img_size, img_size), Image.Resampling.LANCZOS)
-            img.save(dest_file, format="JPEG", quality=95)
+            # Bilinear/Bicubic gives 3-5x faster downsampling with identical CNN representations
+            img = img.resize((img_size, img_size), Image.Resampling.BILINEAR)
+            img.save(dest_file, format="JPEG", quality=90)
         return dest_file.parent.name, True
     except Exception as e:
         return str(e), False
 
 
 def process_and_save_images(split_df, split_name, images_dir, output_dir, img_size=224):
-    """Open, transpose, convert to RGB, resize with LANCZOS, and save each image.
+    """Open, transpose, convert to RGB, resize, and save each image.
 
-    Uses threaded processing for ~2-4x speedup. PIL releases the GIL during
-    JPEG decode/encode, so threads give real parallelism for image I/O.
+    Uses threaded processing and in-memory file lookup for maximum throughput.
     """
     split_dir = Path(output_dir) / split_name
     counts = Counter()
+
+    # Fast in-memory directory indexing (avoids thousands of redundant disk stat calls)
+    file_lookup = {f.name: f for f in images_dir.iterdir() if f.is_file()}
 
     # Build work items list
     work_items = []
@@ -229,12 +232,11 @@ def process_and_save_images(split_df, split_name, images_dir, output_dir, img_si
         img_id = str(row["image"]).strip()
         label = str(row["label"]).strip()
 
-        # Resolve image file: check directly and with common extensions
         file_path = None
         for ext in ["", ".jpg", ".jpeg", ".png", ".JPG"]:
-            cand = images_dir / f"{img_id}{ext}"
-            if cand.is_file():
-                file_path = cand
+            cand_name = f"{img_id}{ext}"
+            if cand_name in file_lookup:
+                file_path = file_lookup[cand_name]
                 break
         if file_path is None:
             continue
@@ -328,17 +330,17 @@ def main():
 
         # Check for missing/unreadable files
         print("\nVerifying image file availability...")
+        existing_filenames = {f.name for f in images_dir.iterdir() if f.is_file()}
         valid_rows = []
         skipped_count = 0
         for idx, row in df.iterrows():
             img_id = str(row["image"]).strip()
-            target_path = None
+            found = False
             for ext in ["", ".jpg", ".jpeg", ".png", ".JPG"]:
-                cand = images_dir / f"{img_id}{ext}"
-                if cand.is_file():
-                    target_path = cand
+                if f"{img_id}{ext}" in existing_filenames:
+                    found = True
                     break
-            if target_path is None:
+            if not found:
                 skipped_count += 1
                 continue
             valid_rows.append(row)
