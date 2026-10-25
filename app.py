@@ -152,7 +152,7 @@ with tab_pred:
         # Display original with reasonable size constraint
         display_img = pil_image.copy()
         display_img.thumbnail((400, 400))
-        st.image(display_img, caption=input_source_str, use_column_width=True)
+        st.image(display_img, caption=input_source_str, use_container_width=True)
 
     with col_img2:
         st.markdown("**Model View (224×224 RGB)**")
