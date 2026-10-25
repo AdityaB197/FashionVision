@@ -101,6 +101,9 @@ def generate_synthetic_raw_dataset(temp_dir):
 def find_dataset_files(source_dir):
     """Find images.csv and the images directory recursively under source_dir."""
     source_path = Path(source_dir)
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source directory '{source_path}' does not exist.")
+
     csv_candidates = list(source_path.rglob("images.csv"))
     if not csv_candidates:
         csv_candidates = list(source_path.rglob("*.csv"))
@@ -109,12 +112,32 @@ def find_dataset_files(source_dir):
 
     csv_path = csv_candidates[0]
 
-    # Look for images directory
+    # Search for image directory candidates.
+    # The Kaggle clothing-dataset-full dataset uses 'images_original' or 'images_compressed' or 'images'.
     images_dir = None
-    if (csv_path.parent / "images").is_dir():
-        images_dir = csv_path.parent / "images"
-    else:
-        candidates = [d for d in source_path.rglob("images") if d.is_dir()]
+    search_dirs = [csv_path.parent, source_path]
+    folder_names = ["images_original", "images_compressed", "images", "img"]
+
+    for parent in search_dirs:
+        for fname in folder_names:
+            candidate = parent / fname
+            if candidate.is_dir() and any(candidate.glob("*.jpg")):
+                images_dir = candidate
+                break
+        if images_dir:
+            break
+
+    if not images_dir:
+        # Search recursively for folder named images_original, images_compressed, or images
+        for fname in folder_names:
+            candidates = [d for d in source_path.rglob(fname) if d.is_dir() and any(d.glob("*.jpg"))]
+            if candidates:
+                images_dir = candidates[0]
+                break
+
+    if not images_dir:
+        # Fallback: search for any directory containing .jpg files
+        candidates = [d for d in source_path.rglob("*") if d.is_dir() and any(d.glob("*.jpg"))]
         if candidates:
             images_dir = candidates[0]
         else:
@@ -206,13 +229,15 @@ def process_and_save_images(split_df, split_name, images_dir, output_dir, img_si
         img_id = str(row["image"]).strip()
         label = str(row["label"]).strip()
 
-        # Resolve image file
-        file_path = images_dir / img_id
-        if not file_path.is_file():
-            if (images_dir / f"{img_id}.jpg").is_file():
-                file_path = images_dir / f"{img_id}.jpg"
-            else:
-                continue
+        # Resolve image file: check directly and with common extensions
+        file_path = None
+        for ext in ["", ".jpg", ".jpeg", ".png", ".JPG"]:
+            cand = images_dir / f"{img_id}{ext}"
+            if cand.is_file():
+                file_path = cand
+                break
+        if file_path is None:
+            continue
 
         dest_file = split_dir / label / f"{Path(img_id).stem}.jpg"
         work_items.append((str(file_path), str(dest_file), img_size))
@@ -307,9 +332,12 @@ def main():
         skipped_count = 0
         for idx, row in df.iterrows():
             img_id = str(row["image"]).strip()
-            cand1 = images_dir / img_id
-            cand2 = images_dir / f"{img_id}.jpg"
-            target_path = cand1 if cand1.is_file() else (cand2 if cand2.is_file() else None)
+            target_path = None
+            for ext in ["", ".jpg", ".jpeg", ".png", ".JPG"]:
+                cand = images_dir / f"{img_id}{ext}"
+                if cand.is_file():
+                    target_path = cand
+                    break
             if target_path is None:
                 skipped_count += 1
                 continue
@@ -317,6 +345,11 @@ def main():
 
         df = pd.DataFrame(valid_rows)
         print(f"Usable images found: {len(df)} (Skipped missing files: {skipped_count})")
+        if len(df) == 0:
+            raise RuntimeError(
+                f"No matching image files found in '{images_dir}' corresponding to '{csv_path}'. "
+                f"Skipped all {skipped_count} entries. Please verify the dataset structure."
+            )
 
         # Class filtering
         print("\nFiltering classes...")
