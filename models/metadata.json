@@ -5,44 +5,90 @@
   "seed": 42,
   "batch_size": 32,
   "epochs_requested": {
-    "head": 1,
-    "finetune": 1
+    "head": 10,
+    "finetune": 10
   },
   "epochs_actually_run": {
-    "head": 1,
-    "finetune": 1
+    "head": 10,
+    "finetune": 10
   },
   "img_size": [
     224,
     224
   ],
   "class_names": [
-    "dress",
-    "shirt",
-    "t-shirt"
+    "Blazer",
+    "Dress",
+    "Hat",
+    "Hoodie",
+    "Longsleeve",
+    "Outwear",
+    "Pants",
+    "Polo",
+    "Shirt",
+    "Shoes",
+    "Shorts",
+    "Skirt",
+    "T-Shirt",
+    "Undershirt"
   ],
   "image_counts_per_class_per_split": {
     "train": {
-      "t-shirt": 14,
-      "shirt": 14,
-      "dress": 14
+      "Pants": 540,
+      "T-Shirt": 765,
+      "Shoes": 323,
+      "Skirt": 124,
+      "Dress": 283,
+      "Longsleeve": 609,
+      "Shorts": 224,
+      "Hat": 140,
+      "Shirt": 295,
+      "Undershirt": 84,
+      "Polo": 93,
+      "Hoodie": 84,
+      "Outwear": 212,
+      "Blazer": 103
     },
     "val": {
-      "t-shirt": 3,
-      "shirt": 3,
-      "dress": 3
+      "Outwear": 79,
+      "T-Shirt": 139,
+      "Undershirt": 23,
+      "Shorts": 51,
+      "Pants": 95,
+      "Hat": 18,
+      "Longsleeve": 71,
+      "Shoes": 36,
+      "Dress": 53,
+      "Skirt": 24,
+      "Shirt": 61,
+      "Polo": 13,
+      "Hoodie": 11,
+      "Blazer": 5
     },
     "test": {
-      "t-shirt": 3,
-      "shirt": 3,
-      "dress": 3
+      "Shorts": 33,
+      "Shirt": 22,
+      "T-Shirt": 107,
+      "Shoes": 72,
+      "Pants": 57,
+      "Longsleeve": 19,
+      "Dress": 21,
+      "Outwear": 21,
+      "Undershirt": 11,
+      "Polo": 14,
+      "Hat": 13,
+      "Skirt": 7,
+      "Hoodie": 5,
+      "Blazer": 1
     }
   },
-  "split_method": "plain_stratified",
+  "split_method": "group_aware_by_sender_id",
   "tensorflow_version": "2.21.0",
-  "python_version": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
-  "gpus": [],
+  "python_version": "3.13.16 (main, Oct  1 2026, 15:40:24) [GCC 13.3.0]",
+  "gpus": [
+    "/physical_device:GPU:0"
+  ],
   "unfrozen_layers": 30,
   "preprocessing_description": "PIL LANCZOS resize to 224x224 RGB; internal Keras Rescaling(scale=1/127.5, offset=-1)",
-  "utc_timestamp": "2026-10-22T18:27:40.630565+00:00"
+  "utc_timestamp": "2026-10-25T08:19:54.031068+00:00"
 }
