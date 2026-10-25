@@ -1,4 +1,4 @@
-﻿"""FashionVision v2 — Streamlit Web Application.
+"""FashionVision v2 — Streamlit Web Application.
 
 Real clothing photo classification powered by MobileNetV2 transfer learning.
 Upload photos, use your webcam, or test with prepared samples.
@@ -45,7 +45,7 @@ try:
     model, class_names, metadata = cached_load_artifacts()
 except Exception as e:
     st.error(f"Error loading model artifacts: {e}")
-    st.info("Ensure that ''real_model.keras'', ''class_names.json'', and ''metadata.json'' exist in the models/ directory.")
+    st.info("Ensure that 'real_model.keras', 'class_names.json', and 'metadata.json' exist in the models/ directory.")
     st.stop()
 
 # Load sample test images if available
@@ -91,7 +91,7 @@ if input_source_choice == "Sample from test set" and sample_images:
     
     try:
         pil_image = Image.open(sample_data["path"])
-        input_source_str = f"Test sample: {sample_data[''display'']}"
+        input_source_str = f"Test sample: {sample_data['display']}"
         true_label_name = sample_data["class"]
         st.sidebar.info(f"Ground Truth: **{true_label_name}**")
     except Exception as e:
@@ -182,15 +182,15 @@ with tab_pred:
                 0.0
             )
             if actual_class_conf > 0:
-                st.caption(f"Actual class ''{true_label_name}'' confidence: {actual_class_conf * 100:.2f}%")
+                st.caption(f"Actual class '{true_label_name}' confidence: {actual_class_conf * 100:.2f}%")
 
-    st.markdown(f"#### Top-{len(pred_res[''top_k''])} Confidence Scores")
+    st.markdown(f"#### Top-{len(pred_res['top_k'])} Confidence Scores")
     for item in pred_res["top_k"]:
         c_label, c_bar = st.columns([1, 4])
         with c_label:
-            st.write(f"**{item[''class_name'']}**")
+            st.write(f"**{item['class_name']}**")
         with c_bar:
-            st.progress(float(item["score"]), text=f"{item[''score''] * 100:.2f}%")
+            st.progress(float(item["score"]), text=f"{item['score'] * 100:.2f}%")
 
     # BUG FIX 2 DEBUG INFO: Add preprocessing validation panel
     with st.expander("🔍 Debug: Preprocessing Details"):
@@ -201,7 +201,7 @@ with tab_pred:
         st.write(f"- Mean: {prep_tensor.mean():.2f}, Std: {prep_tensor.std():.2f}")
         st.caption(
             "✓ Expected: shape=(1, 224, 224, 3), dtype=float32, range=[0.0, 255.0]. "
-            "Model''s internal Rescaling layer converts to [-1.0, 1.0]."
+            "Model's internal Rescaling layer converts to [-1.0, 1.0]."
         )
 
     # Load test metrics summary if results/metrics.json is available
@@ -240,19 +240,19 @@ with tab_perf:
             metrics_json = json.load(f)
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Test Accuracy", f"{metrics_json[''accuracy''] * 100:.2f}%")
-        m2.metric("Macro Precision", f"{metrics_json[''macro_precision''] * 100:.2f}%")
-        m3.metric("Macro Recall", f"{metrics_json[''macro_recall''] * 100:.2f}%")
-        m4.metric("Macro F1", f"{metrics_json[''macro_f1''] * 100:.2f}%")
+        m1.metric("Test Accuracy", f"{metrics_json['accuracy'] * 100:.2f}%")
+        m2.metric("Macro Precision", f"{metrics_json['macro_precision'] * 100:.2f}%")
+        m3.metric("Macro Recall", f"{metrics_json['macro_recall'] * 100:.2f}%")
+        m4.metric("Macro F1", f"{metrics_json['macro_f1'] * 100:.2f}%")
 
         st.markdown("#### Per-Class Performance")
         per_class_table = []
         for cname, stats in metrics_json.get("per_class", {}).items():
             per_class_table.append({
                 "Class": cname,
-                "Precision": f"{stats[''precision''] * 100:.2f}%",
-                "Recall": f"{stats[''recall''] * 100:.2f}%",
-                "F1-Score": f"{stats[''f1''] * 100:.2f}%",
+                "Precision": f"{stats['precision'] * 100:.2f}%",
+                "Recall": f"{stats['recall'] * 100:.2f}%",
+                "F1-Score": f"{stats['f1'] * 100:.2f}%",
                 "Support": stats["support"],
             })
         st.dataframe(per_class_table, use_container_width=True)
@@ -297,9 +297,9 @@ with tab_curves:
             with col1:
                 st.markdown("**Stage 1 (Head Training)**")
                 if "accuracy" in history_data and len(history_data["accuracy"]) > 0:
-                    st.metric("Final Train Accuracy", f"{history_data[''accuracy''][-1] * 100:.2f}%")
+                    st.metric("Final Train Accuracy", f"{history_data['accuracy'][-1] * 100:.2f}%")
                 if "val_accuracy" in history_data and len(history_data["val_accuracy"]) > 0:
-                    st.metric("Final Val Accuracy", f"{history_data[''val_accuracy''][-1] * 100:.2f}%")
+                    st.metric("Final Val Accuracy", f"{history_data['val_accuracy'][-1] * 100:.2f}%")
             
             with col2:
                 st.markdown("**Stage 2 (Fine-tuning)**")
@@ -312,6 +312,6 @@ with tab_curves:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Model Info**")
-st.sidebar.caption(f"Architecture: {metadata.get(''base_model_name'', ''MobileNetV2'')}")
+st.sidebar.caption(f"Architecture: {metadata.get('base_model_name', 'MobileNetV2')}")
 st.sidebar.caption(f"Classes: {len(class_names)}")
 st.sidebar.caption(f"Input size: 224×224 RGB")
