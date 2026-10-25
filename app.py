@@ -1,4 +1,4 @@
-"""FashionVision v2 — Streamlit Web Application.
+﻿"""FashionVision v2 — Streamlit Web Application.
 
 Real clothing photo classification powered by MobileNetV2 transfer learning.
 Upload photos, use your webcam, or test with prepared samples.
@@ -45,7 +45,7 @@ try:
     model, class_names, metadata = cached_load_artifacts()
 except Exception as e:
     st.error(f"Error loading model artifacts: {e}")
-    st.info("Ensure that 'real_model.keras', 'class_names.json', and 'metadata.json' exist in the models/ directory.")
+    st.info("Ensure that ''real_model.keras'', ''class_names.json'', and ''metadata.json'' exist in the models/ directory.")
     st.stop()
 
 # Load sample test images if available
@@ -91,7 +91,7 @@ if input_source_choice == "Sample from test set" and sample_images:
     
     try:
         pil_image = Image.open(sample_data["path"])
-        input_source_str = f"Test sample: {sample_data['display']}"
+        input_source_str = f"Test sample: {sample_data[''display'']}"
         true_label_name = sample_data["class"]
         st.sidebar.info(f"Ground Truth: **{true_label_name}**")
     except Exception as e:
@@ -152,30 +152,57 @@ with tab_pred:
         # Display original with reasonable size constraint
         display_img = pil_image.copy()
         display_img.thumbnail((400, 400))
-        st.image(display_img, caption=input_source_str)
+        st.image(display_img, caption=input_source_str, use_column_width=True)
 
     with col_img2:
         st.markdown("**Model View (224×224 RGB)**")
-        # Show the preprocessed tensor as the model sees it
-        preview_224 = Image.fromarray(prep_tensor[0].astype(np.uint8))
+        # BUG FIX 1: Properly convert float32 [0,255] to uint8 with clipping
+        # The preprocessed tensor is float32 in range [0.0, 255.0]
+        # Direct casting causes overflow; must clip first
+        preview_224 = Image.fromarray(np.clip(prep_tensor[0], 0, 255).astype(np.uint8))
         st.image(preview_224, caption="224×224 RGB input tensor", width=224)
 
     st.markdown("---")
     st.subheader(f"Prediction: **{pred_class}** ({confidence * 100:.1f}%)")
 
+    # BUG FIX 3: Use st.error() for mismatches (red) instead of st.warning() (yellow)
+    # Also improved formatting with emoji and bold text
     if true_label_name is not None:
         if pred_class.lower() == true_label_name.lower():
-            st.success(f"✓ Matches ground truth: **{true_label_name}**")
+            st.success(f"✅ **Correct Prediction!** Matches ground truth: **{true_label_name}**")
         else:
-            st.warning(f"✗ Does not match ground truth: Expected **{true_label_name}**, got **{pred_class}**")
+            # Use error styling for prediction mismatches (clear visual hierarchy)
+            st.error(
+                f"❌ **Prediction Mismatch:** Expected **{true_label_name}**, "
+                f"but predicted **{pred_class}** (confidence: {confidence * 100:.1f}%)"
+            )
+            # Show actual class confidence for debugging
+            actual_class_conf = next(
+                (item["score"] for item in pred_res["top_k"] if item["class_name"].lower() == true_label_name.lower()),
+                0.0
+            )
+            if actual_class_conf > 0:
+                st.caption(f"Actual class ''{true_label_name}'' confidence: {actual_class_conf * 100:.2f}%")
 
-    st.markdown(f"#### Top-{len(pred_res['top_k'])} Confidence Scores")
+    st.markdown(f"#### Top-{len(pred_res[''top_k''])} Confidence Scores")
     for item in pred_res["top_k"]:
         c_label, c_bar = st.columns([1, 4])
         with c_label:
-            st.write(f"**{item['class_name']}**")
+            st.write(f"**{item[''class_name'']}**")
         with c_bar:
-            st.progress(float(item["score"]), text=f"{item['score'] * 100:.2f}%")
+            st.progress(float(item["score"]), text=f"{item[''score''] * 100:.2f}%")
+
+    # BUG FIX 2 DEBUG INFO: Add preprocessing validation panel
+    with st.expander("🔍 Debug: Preprocessing Details"):
+        st.write("**Tensor Statistics:**")
+        st.write(f"- Shape: {prep_tensor.shape}")
+        st.write(f"- Dtype: {prep_tensor.dtype}")
+        st.write(f"- Value range: [{prep_tensor.min():.2f}, {prep_tensor.max():.2f}]")
+        st.write(f"- Mean: {prep_tensor.mean():.2f}, Std: {prep_tensor.std():.2f}")
+        st.caption(
+            "✓ Expected: shape=(1, 224, 224, 3), dtype=float32, range=[0.0, 255.0]. "
+            "Model''s internal Rescaling layer converts to [-1.0, 1.0]."
+        )
 
     # Load test metrics summary if results/metrics.json is available
     test_metrics_data = None
@@ -213,19 +240,19 @@ with tab_perf:
             metrics_json = json.load(f)
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Test Accuracy", f"{metrics_json['accuracy'] * 100:.2f}%")
-        m2.metric("Macro Precision", f"{metrics_json['macro_precision'] * 100:.2f}%")
-        m3.metric("Macro Recall", f"{metrics_json['macro_recall'] * 100:.2f}%")
-        m4.metric("Macro F1", f"{metrics_json['macro_f1'] * 100:.2f}%")
+        m1.metric("Test Accuracy", f"{metrics_json[''accuracy''] * 100:.2f}%")
+        m2.metric("Macro Precision", f"{metrics_json[''macro_precision''] * 100:.2f}%")
+        m3.metric("Macro Recall", f"{metrics_json[''macro_recall''] * 100:.2f}%")
+        m4.metric("Macro F1", f"{metrics_json[''macro_f1''] * 100:.2f}%")
 
         st.markdown("#### Per-Class Performance")
         per_class_table = []
         for cname, stats in metrics_json.get("per_class", {}).items():
             per_class_table.append({
                 "Class": cname,
-                "Precision": f"{stats['precision'] * 100:.2f}%",
-                "Recall": f"{stats['recall'] * 100:.2f}%",
-                "F1-Score": f"{stats['f1'] * 100:.2f}%",
+                "Precision": f"{stats[''precision''] * 100:.2f}%",
+                "Recall": f"{stats[''recall''] * 100:.2f}%",
+                "F1-Score": f"{stats[''f1''] * 100:.2f}%",
                 "Support": stats["support"],
             })
         st.dataframe(per_class_table, use_container_width=True)
@@ -270,9 +297,9 @@ with tab_curves:
             with col1:
                 st.markdown("**Stage 1 (Head Training)**")
                 if "accuracy" in history_data and len(history_data["accuracy"]) > 0:
-                    st.metric("Final Train Accuracy", f"{history_data['accuracy'][-1] * 100:.2f}%")
+                    st.metric("Final Train Accuracy", f"{history_data[''accuracy''][-1] * 100:.2f}%")
                 if "val_accuracy" in history_data and len(history_data["val_accuracy"]) > 0:
-                    st.metric("Final Val Accuracy", f"{history_data['val_accuracy'][-1] * 100:.2f}%")
+                    st.metric("Final Val Accuracy", f"{history_data[''val_accuracy''][-1] * 100:.2f}%")
             
             with col2:
                 st.markdown("**Stage 2 (Fine-tuning)**")
@@ -285,6 +312,6 @@ with tab_curves:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Model Info**")
-st.sidebar.caption(f"Architecture: {metadata.get('base_model_name', 'MobileNetV2')}")
+st.sidebar.caption(f"Architecture: {metadata.get(''base_model_name'', ''MobileNetV2'')}")
 st.sidebar.caption(f"Classes: {len(class_names)}")
 st.sidebar.caption(f"Input size: 224×224 RGB")
