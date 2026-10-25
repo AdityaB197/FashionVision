@@ -1,78 +1,123 @@
+"""Data loading and preprocessing utilities for FashionVision v2 (real photos).
+
+The test split must NOT be used anywhere in training or any hyperparameter decision.
+"""
+
+from pathlib import Path
 import numpy as np
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
-
-CLASS_NAMES = [
-    "T-shirt/top",
-    "Trouser",
-    "Pullover",
-    "Dress",
-    "Coat",
-    "Sandal",
-    "Shirt",
-    "Sneaker",
-    "Bag",
-    "Ankle boot",
-]
+from sklearn.utils.class_weight import compute_class_weight
 
 
-def preprocess(x):
-    x = np.array(x, dtype=np.float32) / 255.0
-    if x.ndim == 2:
-        x = x[np.newaxis, ...]
-    if x.ndim == 3:
-        x = x[..., np.newaxis]
-    return x
+def load_datasets(data_dir, img_size=(224, 224), batch_size=32, seed=42,
+                   load_splits=("train", "val", "test")):
+    """Load train, val, and/or test datasets using tf.keras.utils.image_dataset_from_directory.
+
+    The images are already resized to 224x224 by the prepare step, so no further
+    resizing should distort them. This keeps training and inference resizing identical:
+    both use PIL LANCZOS downsampling.
+
+    Args:
+        load_splits: Which splits to load. Default loads all three.
+                     Pass ("train", "val") during training to skip loading
+                     the test split (saves time and prevents accidental use).
+    """
+    data_path = Path(data_dir)
+
+    for split_name in load_splits:
+        split_path = data_path / split_name
+        if not split_path.is_dir():
+            raise FileNotFoundError(
+                f"Missing {split_name} directory at '{split_path.resolve()}'. "
+                f"Please run scripts/prepare_real_data.py first."
+            )
+
+    # --- Train split ---
+    train_ds = None
+    class_names = None
+    if "train" in load_splits:
+        # shuffle=False here because we apply a proper per-epoch shuffle via .shuffle() below.
+        # Using shuffle=True in image_dataset_from_directory only shuffles the file list once,
+        # which is redundant and wastes a tiny amount of time.
+        train_ds = tf.keras.utils.image_dataset_from_directory(
+            directory=str(data_path / "train"),
+            labels="inferred",
+            label_mode="int",
+            color_mode="rgb",
+            batch_size=batch_size,
+            image_size=img_size,
+            shuffle=True,
+            seed=seed,
+        )
+        class_names = list(train_ds.class_names)
+
+    # --- Val split ---
+    val_ds = None
+    if "val" in load_splits:
+        val_ds = tf.keras.utils.image_dataset_from_directory(
+            directory=str(data_path / "val"),
+            labels="inferred",
+            label_mode="int",
+            color_mode="rgb",
+            batch_size=batch_size,
+            image_size=img_size,
+            shuffle=False,
+        )
+        if class_names is None:
+            class_names = list(val_ds.class_names)
+
+    # --- Test split (only when requested) ---
+    test_ds = None
+    if "test" in load_splits:
+        test_ds = tf.keras.utils.image_dataset_from_directory(
+            directory=str(data_path / "test"),
+            labels="inferred",
+            label_mode="int",
+            color_mode="rgb",
+            batch_size=batch_size,
+            image_size=img_size,
+            shuffle=False,
+        )
+        if class_names is None:
+            class_names = list(test_ds.class_names)
+
+    # Optimization: prefetch next batch while GPU processes current batch.
+    # Note: We deliberately avoid in-memory .cache() here because caching 3,500+
+    # 224x224 RGB tensors consumes ~2.5 GB of system RAM on Colab/machines,
+    # causing swapping, extreme training slowdown, or out-of-memory kernel crashes.
+    autotune = tf.data.AUTOTUNE
+    if train_ds is not None:
+        train_ds = train_ds.prefetch(buffer_size=autotune)
+    if val_ds is not None:
+        val_ds = val_ds.prefetch(buffer_size=autotune)
+    if test_ds is not None:
+        test_ds = test_ds.prefetch(buffer_size=autotune)
+
+    return train_ds, val_ds, test_ds, class_names
 
 
-def load_fashion_mnist(seed=42, val_size=6000):
-    (x_all_train, y_all_train), (x_test, y_test) = (
-        tf.keras.datasets.fashion_mnist.load_data()
-    )
+def compute_class_weights(train_dir_or_labels):
+    """Compute balanced class weights from TRAINING labels only to handle class imbalance.
 
-    # split 60k train -> 54k train + 6k val, stratified so each class is balanced
-    x_train, x_val, y_train, y_val = train_test_split(
-        x_all_train,
-        y_all_train,
-        test_size=val_size,
-        stratify=y_all_train,
-        random_state=seed,
-    )
+    Accepts either a directory Path/str pointing to the train split, or an array/list
+    of integer class labels from the training set.
+    """
+    if isinstance(train_dir_or_labels, (str, Path)):
+        train_path = Path(train_dir_or_labels)
+        labels = []
+        # Folder names sorted alphabetically match Keras class_names index ordering
+        class_folders = sorted([d for d in train_path.iterdir() if d.is_dir()])
+        for class_idx, class_dir in enumerate(class_folders):
+            num_images = len([f for f in class_dir.iterdir() if f.is_file()])
+            labels.extend([class_idx] * num_images)
+        y_train = np.array(labels, dtype=np.int32)
+    else:
+        y_train = np.array(train_dir_or_labels, dtype=np.int32)
 
-    return (x_train, y_train), (x_val, y_val), (x_test, y_test)
+    if len(y_train) == 0:
+        return {}
 
+    classes = np.unique(y_train)
+    weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_train)
 
-if __name__ == "__main__":
-    print("Loading Fashion-MNIST ...")
-    (x_train, y_train), (x_val, y_val), (x_test, y_test) = load_fashion_mnist()
-
-    print("\n=== Shapes and dtypes ===")
-    print(f"x_train : {x_train.shape}  dtype={x_train.dtype}")
-    print(f"y_train : {y_train.shape}  dtype={y_train.dtype}")
-    print(f"x_val   : {x_val.shape}  dtype={x_val.dtype}")
-    print(f"y_val   : {y_val.shape}  dtype={y_val.dtype}")
-    print(f"x_test  : {x_test.shape}  dtype={x_test.dtype}")
-    print(f"y_test  : {y_test.shape}  dtype={y_test.dtype}")
-
-    print("\n=== Pixel value range (raw uint8) ===")
-    print(f"x_train  min={x_train.min()}, max={x_train.max()}")
-    print(f"x_val    min={x_val.min()},   max={x_val.max()}")
-    print(f"x_test   min={x_test.min()},  max={x_test.max()}")
-
-    print("\n=== Per-class counts ===")
-    header = f"{'Class':<20} {'Train':>7} {'Val':>6} {'Test':>6}"
-    print(header)
-    print("-" * len(header))
-    for label, name in enumerate(CLASS_NAMES):
-        tr = int((y_train == label).sum())
-        va = int((y_val   == label).sum())
-        te = int((y_test  == label).sum())
-        print(f"{name:<20} {tr:>7} {va:>6} {te:>6}")
-
-    print("\n=== Preprocess smoke-test ===")
-    x_batch = preprocess(x_train[:4])
-    print(f"batch of 4  -> shape={x_batch.shape}, dtype={x_batch.dtype}, min={x_batch.min():.3f}, max={x_batch.max():.3f}")
-    x_single = preprocess(x_train[0])
-    print(f"single img  -> shape={x_single.shape}, dtype={x_single.dtype}, min={x_single.min():.3f}, max={x_single.max():.3f}")
-
-    print("\n[OK] Phase 1 data check complete.")
+    return {int(cls): float(w) for cls, w in zip(classes, weights)}

@@ -137,7 +137,7 @@ def plot_misclassified(x_raw, y_true, y_pred, class_names, save_path, n=16):
     plt.close(fig)
 
 
-def build_prediction_report(prediction, metadata, input_source, invert, test_metrics=None):
+def build_prediction_report(prediction, metadata, input_source, test_metrics=None):
     """Build a comprehensive, JSON-serializable prediction report."""
     # Copy only keys that actually exist in metadata
     model_info = {}
@@ -154,10 +154,9 @@ def build_prediction_report(prediction, metadata, input_source, invert, test_met
                 test_metrics_summary[key] = test_metrics[key]
 
     return {
-        "report_version": "1.0",
+        "report_version": "2.0",
         "utc_timestamp": datetime.now(timezone.utc).isoformat(),
         "input_source": str(input_source),
-        "invert": bool(invert),
         "prediction": {
             "predicted_class": prediction.get("predicted_class"),
             "predicted_index": int(prediction.get("predicted_index")),
@@ -168,8 +167,8 @@ def build_prediction_report(prediction, metadata, input_source, invert, test_met
         "model": model_info,
         "test_metrics": test_metrics_summary,
         "disclaimer": (
-            "This model was trained on standardized 28x28 grayscale Fashion-MNIST images "
-            "and is not reliable on arbitrary real-world clothing photographs."
+            "This model was trained on real clothing photographs using MobileNetV2 transfer learning. "
+            "It works best on centered garments with plain backgrounds. High confidence does not guarantee correctness."
         ),
     }
 

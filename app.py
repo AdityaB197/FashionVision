@@ -1,7 +1,7 @@
-"""FashionVision — Streamlit Web Application.
+"""FashionVision v2 — Streamlit Web Application.
 
-A lightweight, interactive clothing classifier demonstrating CNN inference
-on Fashion-MNIST standardized images.
+Real clothing photo classification powered by MobileNetV2 transfer learning.
+Upload photos, use your webcam, or test with prepared samples.
 """
 
 import json
@@ -16,99 +16,108 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data import load_fashion_mnist
-from src.inference import load_artifacts, prepare_image, predict_top3
+from src.inference import load_real_artifacts, prepare_real_image, predict_top_k_real
 from src.reporting import build_prediction_report
 
 # Page configuration
 st.set_page_config(
-    page_title="FashionVision",
+    page_title="FashionVision v2",
     page_icon="👗",
     layout="wide",
 )
 
-st.title("FashionVision")
-st.markdown("### CNN-based Fashion-MNIST Clothing Classifier")
+st.title("FashionVision v2")
+st.markdown("### Real Clothing Photo Classification with MobileNetV2 Transfer Learning")
 
-# Clear disclaimer right below title as requested
-st.warning(
-    "⚠️ **Disclaimer:** This model was trained on standardized 28x28 grayscale Fashion-MNIST images "
-    "and is **NOT** reliable on arbitrary real-world clothing photos."
+st.info(
+    "🎯 **How it works:** This model uses MobileNetV2 pretrained on ImageNet, fine-tuned on real clothing photographs. "
+    "It works best with centered garments on plain backgrounds. High confidence does not guarantee correctness."
 )
 
 # Caching is crucial in Streamlit:
 # @st.cache_resource keeps the heavy TensorFlow model loaded in memory across user interactions.
 @st.cache_resource
 def cached_load_artifacts():
-    return load_artifacts()
-
-# @st.cache_data caches static data (like the 10,000 test images) so we avoid re-reading on every rerun.
-@st.cache_data
-def cached_load_test_data():
-    (_, _), (_, _), (x_test, y_test) = load_fashion_mnist()
-    return x_test, y_test
+    return load_real_artifacts()
 
 # Load model artifacts with user-friendly error handling
 try:
     model, class_names, metadata = cached_load_artifacts()
 except Exception as e:
     st.error(f"Error loading model artifacts: {e}")
-    st.info("Ensure that 'fashion_cnn.keras', 'class_names.json', and 'metadata.json' exist in the models/ directory.")
+    st.info("Ensure that 'real_model.keras', 'class_names.json', and 'metadata.json' exist in the models/ directory.")
     st.stop()
 
-# Load test dataset with error handling
-try:
-    x_test, y_test = cached_load_test_data()
-except Exception as e:
-    st.error(f"Error loading Fashion-MNIST test dataset: {e}")
-    st.stop()
+# Load sample test images if available
+sample_images = []
+test_dir = Path("tmp_real/test")
+if test_dir.exists():
+    for class_dir in sorted(test_dir.iterdir()):
+        if class_dir.is_dir():
+            for img_path in sorted(class_dir.glob("*.jpg"))[:3]:  # Max 3 per class
+                sample_images.append({
+                    "path": img_path,
+                    "class": class_dir.name,
+                    "display": f"{class_dir.name}/{img_path.name}"
+                })
 
 # Sidebar: Controls & Input Selection
 st.sidebar.header("Input Controls")
 
-# Input selection radio: default to test set sample so the app immediately renders an active prediction
+input_options = ["Upload a photo"]
+if sample_images:
+    input_options.insert(0, "Sample from test set")
+input_options.append("Take a photo (webcam)")
+
 input_source_choice = st.sidebar.radio(
     "Choose input source:",
-    options=["Sample from Fashion-MNIST test set", "Upload an image"],
+    options=input_options,
     index=0,
-)
-
-# Why invert exists: Fashion-MNIST images have white/light items on black background.
-# Real-world photos or sketches typically have dark clothes on a light background.
-invert = st.sidebar.checkbox(
-    "Invert colors",
-    value=False,
-    help=(
-        "Fashion-MNIST items are light objects on a black background; "
-        "ordinary photos are usually dark objects on a light background, so turn this on for those."
-    ),
 )
 
 pil_image = None
 input_source_str = ""
-true_label_idx = None
 true_label_name = None
 
-if input_source_choice == "Sample from Fashion-MNIST test set":
-    sample_index = st.sidebar.number_input(
-        "Select test sample index (0 - 9999):",
-        min_value=0,
-        max_value=9999,
-        value=0,
-        step=1,
+if input_source_choice == "Sample from test set" and sample_images:
+    sample_options = [s["display"] for s in sample_images]
+    selected_sample = st.sidebar.selectbox(
+        "Select a test sample:",
+        options=sample_options,
+        index=0,
     )
-    raw_array = x_test[sample_index]
-    true_label_idx = int(y_test[sample_index])
-    true_label_name = class_names[true_label_idx]
-    pil_image = Image.fromarray(raw_array)
-    input_source_str = f"Fashion-MNIST test sample #{sample_index}"
-    st.sidebar.info(f"Ground Truth: **{true_label_name}** (Class #{true_label_idx})")
+    sample_idx = sample_options.index(selected_sample)
+    sample_data = sample_images[sample_idx]
+    
+    try:
+        pil_image = Image.open(sample_data["path"])
+        input_source_str = f"Test sample: {sample_data['display']}"
+        true_label_name = sample_data["class"]
+        st.sidebar.info(f"Ground Truth: **{true_label_name}**")
+    except Exception as e:
+        st.error(f"Could not open sample image: {e}")
+        st.stop()
 
-else:  # Upload an image
+elif input_source_choice == "Take a photo (webcam)":
+    st.sidebar.info("📸 Use the camera input below to capture a photo")
+    camera_photo = st.camera_input("Take a picture of clothing")
+    
+    if camera_photo is not None:
+        try:
+            pil_image = Image.open(camera_photo)
+            input_source_str = "webcam capture"
+        except Exception as e:
+            st.error(f"Could not process camera image: {e}")
+            st.stop()
+    else:
+        st.info("Please take a photo using your webcam or switch to upload mode.")
+        st.stop()
+
+else:  # Upload a photo
     uploaded_file = st.sidebar.file_uploader(
-        "Upload a clothing image:",
-        type=["png", "jpg", "jpeg"],
-        help="Upload an image to classify. Works best with centered clothing items.",
+        "Upload a clothing photo:",
+        type=["png", "jpg", "jpeg", "webp"],
+        help="Upload a photo of clothing. Works best with centered garments on plain backgrounds.",
     )
     if uploaded_file is not None:
         try:
@@ -118,22 +127,21 @@ else:  # Upload an image
             st.error(f"Could not open uploaded image: {e}")
             st.stop()
     else:
-        st.info("Please upload an image from the sidebar or switch to the sample mode to test predictions.")
+        st.info("Please upload a photo from the sidebar or switch to another input mode.")
         st.stop()
 
 # Tabs for structured navigation
-tab_pred, tab_perf, tab_curves, tab_misclass = st.tabs([
+tab_pred, tab_perf, tab_curves = st.tabs([
     "Prediction",
-    "Model performance",
-    "Training curves",
-    "Misclassified examples",
+    "Model Performance",
+    "Training Curves",
 ])
 
 # ----------------- TAB 1: Prediction -----------------
 with tab_pred:
-    # Shared preprocessing ensures image sizing and normalization strictly match training
-    prep_tensor = prepare_image(pil_image, invert=invert)
-    pred_res = predict_top3(model, prep_tensor, class_names, k=3)
+    # Preprocess image: EXIF correction, RGB conversion, 224x224 resize
+    prep_tensor = prepare_real_image(pil_image)
+    pred_res = predict_top_k_real(model, prep_tensor, class_names, k=min(3, len(class_names)))
 
     pred_class = pred_res["predicted_class"]
     confidence = pred_res["confidence"]
@@ -141,26 +149,27 @@ with tab_pred:
     col_img1, col_img2 = st.columns(2)
     with col_img1:
         st.markdown("**Original Input**")
-        st.image(pil_image, caption=input_source_str, width=200)
+        # Display original with reasonable size constraint
+        display_img = pil_image.copy()
+        display_img.thumbnail((400, 400))
+        st.image(display_img, caption=input_source_str)
 
     with col_img2:
-        st.markdown("**Model View (28x28)**")
-        # Upscale 28x28 image using nearest-neighbor so pixels stay sharp for inspection
-        preview_28x28 = Image.fromarray(
-            (prep_tensor[0, :, :, 0] * 255.0).astype(np.uint8)
-        ).resize((200, 200), Image.Resampling.NEAREST)
-        st.image(preview_28x28, caption="28x28 grayscale input tensor", width=200)
+        st.markdown("**Model View (224×224 RGB)**")
+        # Show the preprocessed tensor as the model sees it
+        preview_224 = Image.fromarray(prep_tensor[0].astype(np.uint8))
+        st.image(preview_224, caption="224×224 RGB input tensor", width=224)
 
     st.markdown("---")
     st.subheader(f"Prediction: **{pred_class}** ({confidence * 100:.1f}%)")
 
     if true_label_name is not None:
-        if pred_res["predicted_index"] == true_label_idx:
-            st.success(f"Matches ground truth: **{true_label_name}**")
+        if pred_class.lower() == true_label_name.lower():
+            st.success(f"✓ Matches ground truth: **{true_label_name}**")
         else:
-            st.warning(f"Does not match ground truth: Expected **{true_label_name}**, got **{pred_class}**")
+            st.warning(f"✗ Does not match ground truth: Expected **{true_label_name}**, got **{pred_class}**")
 
-    st.markdown("#### Top-3 Confidence Scores")
+    st.markdown(f"#### Top-{len(pred_res['top_k'])} Confidence Scores")
     for item in pred_res["top_k"]:
         c_label, c_bar = st.columns([1, 4])
         with c_label:
@@ -182,22 +191,21 @@ with tab_pred:
         prediction=pred_res,
         metadata=metadata,
         input_source=input_source_str,
-        invert=invert,
         test_metrics=test_metrics_data,
     )
 
     st.markdown("---")
     st.download_button(
-        label="Download prediction report (JSON)",
+        label="📥 Download prediction report (JSON)",
         data=json.dumps(report, indent=2),
-        file_name="prediction_report.json",
+        file_name="fashionvision_v2_prediction.json",
         mime="application/json",
     )
 
-# ----------------- TAB 2: Model performance -----------------
+# ----------------- TAB 2: Model Performance -----------------
 with tab_perf:
-    st.subheader("Official 10,000-Image Test Set Results")
-    st.caption("Computed during evaluation on Google Colab with test set.")
+    st.subheader("Test Set Evaluation Results")
+    st.caption("Metrics computed on the held-out test split (never seen during training).")
 
     metrics_file = Path("results/metrics.json")
     if metrics_file.exists():
@@ -231,24 +239,52 @@ with tab_perf:
     else:
         st.info("results/confusion_matrix.png not found. Run scripts/evaluate_model.py to produce the plot.")
 
-# ----------------- TAB 3: Training curves -----------------
+    mc_file = Path("results/misclassified_examples.png")
+    if mc_file.exists():
+        st.markdown("#### Misclassified Test Examples")
+        st.image(str(mc_file), caption="Sample of misclassified test images", use_container_width=True)
+    else:
+        st.info("results/misclassified_examples.png not found.")
+
+# ----------------- TAB 3: Training Curves -----------------
 with tab_curves:
-    st.subheader("Training and Validation Curves")
-    st.caption("Generated across training epochs on Google Colab.")
+    st.subheader("Training Progress")
+    st.caption("Two-stage transfer learning: Stage 1 (frozen base) + Stage 2 (fine-tuned top layers)")
 
     tc_file = Path("results/training_curves.png")
     if tc_file.exists():
         st.image(str(tc_file), caption="Training & Validation Curves (Accuracy & Loss)", use_container_width=True)
     else:
-        st.info("results/training_curves.png not found. Run scripts/evaluate_model.py to generate this plot.")
+        st.info("results/training_curves.png not found. Run scripts/train_model.py to generate training curves.")
 
-# ----------------- TAB 4: Misclassified examples -----------------
-with tab_misclass:
-    st.subheader("Misclassified Test Examples")
-    st.caption("Sample of test images where model prediction differed from ground truth.")
+    # Show training history details if available
+    history_file = Path("results/history.json")
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                history_data = json.load(f)
+            
+            st.markdown("#### Training Summary")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Stage 1 (Head Training)**")
+                if "accuracy" in history_data and len(history_data["accuracy"]) > 0:
+                    st.metric("Final Train Accuracy", f"{history_data['accuracy'][-1] * 100:.2f}%")
+                if "val_accuracy" in history_data and len(history_data["val_accuracy"]) > 0:
+                    st.metric("Final Val Accuracy", f"{history_data['val_accuracy'][-1] * 100:.2f}%")
+            
+            with col2:
+                st.markdown("**Stage 2 (Fine-tuning)**")
+                # Note: This assumes history contains both stages concatenated
+                # Actual implementation may vary based on how history is saved
+                st.caption("See curves plot for detailed progression")
+                
+        except Exception:
+            pass
 
-    mc_file = Path("results/misclassified_examples.png")
-    if mc_file.exists():
-        st.image(str(mc_file), caption="Misclassified Fashion-MNIST Test Samples", use_container_width=True)
-    else:
-        st.info("results/misclassified_examples.png not found. Run scripts/evaluate_model.py to generate this plot.")
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Model Info**")
+st.sidebar.caption(f"Architecture: {metadata.get('base_model_name', 'MobileNetV2')}")
+st.sidebar.caption(f"Classes: {len(class_names)}")
+st.sidebar.caption(f"Input size: 224×224 RGB")

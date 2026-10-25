@@ -1,103 +1,119 @@
-# System Architecture — FashionVision
+# System Architecture — FashionVision v2
 
-FashionVision is a production-grade machine learning system designed to classify fashion articles and apparel. The repository integrates two distinct models tailored to different domains:
+FashionVision v2 is a production-grade machine learning system for classifying real-world clothing photographs using **MobileNetV2 transfer learning**. The system leverages ImageNet-pretrained features, adapted through two-stage fine-tuning on real apparel photos from the Kaggle clothing dataset.
 
-1. **FashionVision v1**: A custom, lightweight Convolutional Neural Network (CNN) trained from scratch on the standardized **Fashion-MNIST** dataset (28×28 grayscale).
-2. **FashionVision v2**: A transfer learning architecture leveraging **MobileNetV2** pretrained on ImageNet, fine-tuned on real-world clothing photographs from the Kaggle clothing dataset.
-
-Both architectures feed into a unified Streamlit web application providing real-time inference, class probability rankings, color-inversion preprocessing, and structured JSON prediction report generation.
+The architecture integrates preprocessing, model inference, and a Streamlit web application providing real-time predictions, performance metrics, and structured JSON reports.
 
 ---
 
 ## 1. High-Level Data Flow
 
 ```
-+----------------------------------------------------------------------------------+
-|                                User Input Image                                  |
-|         (Upload: JPEG/PNG/WebP, or pre-bundled test-set / synthetic sample)      |
-+----------------------------------------------------------------------------------+
-                                          |
-                                          v
-+----------------------------------------------------------------------------------+
-|                            Preprocessing Pipeline                                |
-|                                                                                  |
-|   v1 (Fashion-MNIST standard):            v2 (Real Clothing Photos):             |
-|   - ImageOps.exif_transpose               - ImageOps.exif_transpose              |
-|   - Grayscale conversion (Mode "L")       - 3-Channel RGB conversion (Mode "RGB")|
-|   - Optional Inversion (dark-on-light)    - High-quality LANCZOS resize (224x224)|
-|   - LANCZOS resize to 28x28               - float32 NumPy array in [0.0, 255.0]  |
-|   - float32 scaling (/ 255.0) -> [0, 1]   - In-graph Keras Rescaling ([-1, 1])   |
-|   - Tensor shape: (1, 28, 28, 1)          - Tensor shape: (1, 224, 224, 3)       |
-+----------------------------------------------------------------------------------+
-                                          |
-                     +--------------------+--------------------+
-                     |                                         |
-                     v                                         v
-+---------------------------------------+ +---------------------------------------+
-|          v1 CNN Model                 | |      v2 MobileNetV2 Model             |
-|  - Conv2D (32, 3x3) + ReLU            | |  - Training Augmentation Layers       |
-|  - MaxPooling2D (2x2)                 | |  - Rescaling(1/127.5, offset=-1)      |
-|  - Conv2D (64, 3x3) + ReLU            | |  - MobileNetV2 Base (Pretrained)      |
-|  - MaxPooling2D (2x2)                 | |    (Stage 1: Frozen; Stage 2: Top 30) |
-|  - Dropout (0.25)                     | |  - GlobalAveragePooling2D             |
-|  - Flatten                            | |  - Dropout (0.30)                     |
-|  - Dense (128) + ReLU                 | |  - Dense (C) + Softmax                |
-|  - Dropout (0.50)                     | +---------------------------------------+
-|  - Dense (10) + Softmax               |                      |
-+---------------------------------------+                      |
-                     |                                         |
-                     +--------------------+--------------------+
-                                          |
-                                          v
-+----------------------------------------------------------------------------------+
-|                               Inference Engine                                   |
-|   - Extracts top-k probability distributions (default k=3)                       |
-|   - Class index to human-readable label mapping                                  |
-|   - Prediction latency and confidence scoring                                    |
-|   - Produces JSON-serializable structured dictionary                             |
-+----------------------------------------------------------------------------------+
-                                          |
-                                          v
-+----------------------------------------------------------------------------------+
-|                            Streamlit Web UI (app.py)                             |
-|   - Caching with @st.cache_resource                                              |
-|   - Side-by-side original and preprocessed image rendering                       |
-|   - Interactive probability distribution bar charts                              |
-|   - Downloadable evaluation reports with provenance metadata                     |
-+----------------------------------------------------------------------------------+
++------------------------------------------------------------------------------+
+|                          User Input (Real Photo)                             |
+|         Upload JPEG/PNG/WebP • Webcam Capture • Test Sample Selector         |
++------------------------------------------------------------------------------+
+                                      |
+                                      v
++------------------------------------------------------------------------------+
+|                  Preprocessing Pipeline (src/inference.py)                   |
+|   • EXIF orientation correction (ImageOps.exif_transpose)                    |
+|   • RGBA/Grayscale/Palette → RGB conversion                                  |
+|   • High-quality LANCZOS downsampling to 224×224                             |
+|   • Float32 [0, 255] tensor with batch dimension: (1, 224, 224, 3)           |
++------------------------------------------------------------------------------+
+                                      |
+                                      v
++------------------------------------------------------------------------------+
+|                    MobileNetV2 Transfer Model (src/model.py)                 |
+|   • Data Augmentation Layers (RandomFlip, Rotation, Zoom, Contrast, Bright) |
+|   • In-Graph Rescaling: [0, 255] → [-1.0, 1.0]                              |
+|   • MobileNetV2 Base (ImageNet pretrained, 3.5M parameters)                  |
+|     - Stage 1 Training: Frozen (feature extraction only)                     |
+|     - Stage 2 Fine-tuning: Top 30 layers unfrozen (LR: 1e-5)                |
+|   • GlobalAveragePooling2D                                                   |
+|   • Dropout (0.3)                                                            |
+|   • Dense (num_classes) + Softmax                                            |
++------------------------------------------------------------------------------+
+                                      |
+                                      v
++------------------------------------------------------------------------------+
+|                        Inference Engine (src/inference.py)                   |
+|   • predict_top_k_real(): Extract top-k probability distributions            |
+|   • Class index → human-readable label mapping                               |
+|   • JSON-serializable structured output with confidence scores               |
++------------------------------------------------------------------------------+
+                                      |
+                                      v
++------------------------------------------------------------------------------+
+|                        Streamlit Web UI (app.py)                             |
+|   • @st.cache_resource for model loading                                     |
+|   • Side-by-side: original photo + preprocessed 224×224 RGB tensor           |
+|   • Interactive top-k probability bar charts                                 |
+|   • Performance metrics tab: confusion matrix, training curves               |
+|   • Downloadable JSON audit reports with model metadata                      |
++------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Model Architectures in Detail
+## 2. MobileNetV2 Transfer Learning Architecture
 
-### 2.1 FashionVision v1: Custom CNN Architecture
+### 2.1 Model Structure (src/model.py)
 
-The v1 network strikes an optimal balance between parameter efficiency and representation capacity for 28×28 single-channel images.
+The v2 network uses MobileNetV2 as a pretrained feature extractor, topped with a custom classification head:
 
 ```
-Layer (type)                  Output Shape         Param #    Details
-===================================================================================
-image_input (InputLayer)      [(None, 28, 28, 1)]  0          Grayscale tensor
-conv2d_1 (Conv2D)             (None, 26, 26, 32)   320        3x3 kernels, ReLU
-max_pooling2d_1 (MaxPooling)  (None, 13, 13, 32)   0          2x2 window, stride 2
-conv2d_2 (Conv2D)             (None, 11, 11, 64)   18,496     3x3 kernels, ReLU
-max_pooling2d_2 (MaxPooling)  (None, 5, 5, 64)     0          2x2 window, stride 2
-dropout_1 (Dropout)           (None, 5, 5, 64)     0          Rate = 0.25
-flatten (Flatten)             (None, 1600)         0          1600 feature units
-dense_1 (Dense)               (None, 128)          204,928    ReLU activation
-dropout_2 (Dropout)           (None, 128)          0          Rate = 0.50
-predictions (Dense)           (None, 10)           1,290      Softmax activation
-===================================================================================
-Total params: 225,034 (879.04 KB)
-Trainable params: 225,034
-Non-trainable params: 0
+Layer Type                      Output Shape           Param #    Details
+====================================================================================
+image_input (InputLayer)        (None, 224, 224, 3)    0          RGB tensor [0, 255]
+
+--- Data Augmentation Block ---
+aug_flip (RandomFlip)           (None, 224, 224, 3)    0          Horizontal flip
+aug_rotation (RandomRotation)   (None, 224, 224, 3)    0          ±36° rotation
+aug_zoom (RandomZoom)           (None, 224, 224, 3)    0          ±15% zoom
+aug_contrast (RandomContrast)   (None, 224, 224, 3)    0          ±10% contrast
+aug_brightness (RandomBrightness)(None, 224, 224, 3)   0          ±10% brightness
+
+input_rescaling (Rescaling)     (None, 224, 224, 3)    0          [0,255]→[-1,1]
+
+--- MobileNetV2 Base (Pretrained on ImageNet) ---
+mobilenetv2_base (Functional)   (None, 7, 7, 1280)     ~3.5M      Frozen in Stage 1
+                                                                   Top 30 unfrozen in Stage 2
+
+--- Classification Head ---
+global_avg_pool (GlobalAvgPool) (None, 1280)           0          Spatial pooling
+head_dropout (Dropout)          (None, 1280)           0          Rate = 0.3
+predictions (Dense)             (None, num_classes)    1280*C+C   Softmax, float32
+====================================================================================
+Total params: ~3.5M + classification head
+Trainable (Stage 1): ~1.3K (classification head only)
+Trainable (Stage 2): ~1.1M (top 30 layers + classification head)
 ```
 
-#### Key Design Decisions:
-- **Hierarchical Feature Learning**: The first `Conv2D(32)` captures low-level primitives (edges, boundaries, simple textures). The second `Conv2D(64)` combines these into higher-level fashion silhouettes (sleeves, straps, soles, collars).
-- **Two-Stage Regularization**:
-  - `Dropout(0.25)` after the spatial pooling blocks prevents co-adaptation of spatial feature maps.
+### 2.2 Key Design Decisions
+
+#### Why MobileNetV2?
+- **Efficiency**: 3.5M parameters, designed for mobile/edge deployment
+- **Transfer Quality**: Strong ImageNet features transfer well to clothing domain
+- **Depthwise Separable Convolutions**: Efficient spatial-channel factorization
+- **Inverted Residuals**: Linear bottlenecks preserve information flow
+
+#### Why In-Graph Rescaling?
+```python
+layers.Rescaling(scale=1/127.5, offset=-1.0, name="input_rescaling")
+```
+- Embedding normalization **inside the saved model** guarantees identical preprocessing between training and production inference
+- Eliminates common deployment bugs from preprocessing mismatches
+- Accepts standard [0, 255] RGB pixels, converts internally to [-1, 1] (MobileNetV2's expected range)
+
+#### Why Data Augmentation Layers?
+Unlike Fashion-MNIST's uniform scans, real clothing photos vary wildly in:
+- **Lighting conditions**: Indoor vs outdoor, shadows, highlights
+- **Camera angles**: Straight-on vs angled, zoom levels
+- **Backgrounds**: Plain vs cluttered, various colors
+
+Augmentation forces the model to learn **invariant clothing features** (textures, patterns, shapes) rather than memorizing backgrounds or lighting.
   - `Dropout(0.50)` before the final classification head prevents dense neurons from memorizing individual training sample quirks.
 - **Output Softmax**: 10 output units correspond to the standard 10 Fashion-MNIST categories, producing a valid probability distribution that sums to 1.0.
 

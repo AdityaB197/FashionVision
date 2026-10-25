@@ -1,23 +1,48 @@
 {
+  "model_name": "FashionVision v2 (Real Photos MobileNetV2)",
+  "base_model_name": "MobileNetV2",
+  "dataset_source": "kaggle: agrigorev/clothing-dataset-full",
   "seed": 42,
-  "batch_size": 128,
-  "epochs_requested": 20,
-  "epochs_run": 20,
-  "best_epoch": 16,
-  "input_shape": [
-    28,
-    28,
-    1
+  "batch_size": 32,
+  "epochs_requested": {
+    "head": 1,
+    "finetune": 1
+  },
+  "epochs_actually_run": {
+    "head": 1,
+    "finetune": 1
+  },
+  "img_size": [
+    224,
+    224
   ],
-  "num_classes": 10,
-  "train_size": 54000,
-  "val_size": 6000,
-  "preprocessing": "float32, divided by 255.0, shape (N,28,28,1)",
+  "class_names": [
+    "dress",
+    "shirt",
+    "t-shirt"
+  ],
+  "image_counts_per_class_per_split": {
+    "train": {
+      "t-shirt": 14,
+      "shirt": 14,
+      "dress": 14
+    },
+    "val": {
+      "t-shirt": 3,
+      "shirt": 3,
+      "dress": 3
+    },
+    "test": {
+      "t-shirt": 3,
+      "shirt": 3,
+      "dress": 3
+    }
+  },
+  "split_method": "plain_stratified",
   "tensorflow_version": "2.21.0",
-  "python_version": "3.13.15 (main, Aug  6 2026, 11:06:22) [GCC 13.3.0]",
-  "gpu_devices": [
-    "/physical_device:GPU:0"
-  ],
-  "training_seconds": 53.7,
-  "utc_timestamp": "2026-10-21T20:00:01.387008+00:00"
+  "python_version": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "gpus": [],
+  "unfrozen_layers": 30,
+  "preprocessing_description": "PIL LANCZOS resize to 224x224 RGB; internal Keras Rescaling(scale=1/127.5, offset=-1)",
+  "utc_timestamp": "2026-10-22T18:27:40.630565+00:00"
 }

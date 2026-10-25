@@ -1,4 +1,4 @@
-"""Project verification script for FashionVision.
+"""Project verification script for FashionVision v2.
 
 Validates required repository structure, artifacts, configuration consistency,
 and executes an end-to-end inference smoke test.
@@ -19,7 +19,7 @@ def main():
     warn_count = 0
     fail_count = 0
 
-    print("=== FashionVision Project Verification ===\n")
+    print("=== FashionVision v2 Project Verification ===\n")
 
     # 1. Required files and directories (FAIL if missing)
     required_paths = [
@@ -33,7 +33,7 @@ def main():
         ("scripts/train_model.py", PROJECT_ROOT / "scripts" / "train_model.py", False),
         ("scripts/evaluate_model.py", PROJECT_ROOT / "scripts" / "evaluate_model.py", False),
         ("scripts/verify_project.py", PROJECT_ROOT / "scripts" / "verify_project.py", False),
-        ("models/fashion_cnn.keras", PROJECT_ROOT / "models" / "fashion_cnn.keras", False),
+        ("models/real_model.keras", PROJECT_ROOT / "models" / "real_model.keras", False),
         ("models/class_names.json", PROJECT_ROOT / "models" / "class_names.json", False),
         ("models/metadata.json", PROJECT_ROOT / "models" / "metadata.json", False),
         ("results/metrics.json", PROJECT_ROOT / "results" / "metrics.json", False),
@@ -71,46 +71,21 @@ def main():
             print(f"[WARN] Optional file not found: {name}")
             warn_count += 1
 
-    # 3. Check class_names.json equals CLASS_NAMES from src.data
-    print("\n-- Checking Class Names Consistency --")
-    class_names_file = PROJECT_ROOT / "models" / "class_names.json"
-    if class_names_file.is_file():
-        try:
-            from src.data import CLASS_NAMES
-
-            with open(class_names_file, "r", encoding="utf-8") as f:
-                saved_class_names = json.load(f)
-
-            if saved_class_names == CLASS_NAMES:
-                print("[PASS] models/class_names.json matches src.data.CLASS_NAMES exactly.")
-                passed_count += 1
-            else:
-                print(
-                    f"[FAIL] Class names mismatch between models/class_names.json and src.data.CLASS_NAMES.\n"
-                    f"       Saved: {saved_class_names}\n"
-                    f"       Code:  {CLASS_NAMES}"
-                )
-                fail_count += 1
-        except Exception as e:
-            print(f"[FAIL] Error comparing class names: {e}")
-            fail_count += 1
-    else:
-        print("[FAIL] Cannot check class names consistency: models/class_names.json is missing.")
-        fail_count += 1
-
-    # 4. End-to-end sample prediction check
-    print("\n-- Running End-to-End Sample Prediction Check --")
+    # 3. Check inference with 224x224 RGB test tensor
+    print("\n-- Running End-to-End Sample Prediction Check (224x224 RGB) --")
     try:
+        import numpy as np
         from PIL import Image
-        from src.data import load_fashion_mnist
-        from src.inference import load_artifacts, prepare_image, predict_top3
+        from src.inference import load_real_artifacts, prepare_real_image, predict_top_k_real
 
-        model, class_names, metadata = load_artifacts(str(PROJECT_ROOT / "models"))
-        (_, _), (_, _), (x_test, y_test) = load_fashion_mnist()
-
-        test_img = Image.fromarray(x_test[0])
-        prep_img = prepare_image(test_img, invert=False)
-        pred_res = predict_top3(model, prep_img, class_names, k=3)
+        model, class_names, metadata = load_real_artifacts(str(PROJECT_ROOT / "models"))
+        
+        # Create a test RGB image (random)
+        test_array = np.random.randint(0, 256, (224, 224, 3), dtype=np.uint8)
+        test_img = Image.fromarray(test_array, mode="RGB")
+        
+        prep_img = prepare_real_image(test_img)
+        pred_res = predict_top_k_real(model, prep_img, class_names, k=min(3, len(class_names)))
 
         expected_keys = {"predicted_index", "predicted_class", "confidence", "top_k", "all_scores"}
         is_valid = (
@@ -119,8 +94,10 @@ def main():
             and pred_res["predicted_class"] == class_names[pred_res["predicted_index"]]
             and 0 <= pred_res["predicted_index"] < len(class_names)
             and 0.0 <= pred_res["confidence"] <= 1.0
-            and len(pred_res["top_k"]) == 3
-            and len(pred_res["all_scores"]) == 10
+            and len(pred_res["top_k"]) <= len(class_names)
+            and len(pred_res["all_scores"]) == len(class_names)
+            and prep_img.shape == (1, 224, 224, 3)
+            and prep_img.dtype == np.float32
         )
 
         if is_valid:
@@ -128,6 +105,7 @@ def main():
                 f"[PASS] Sample prediction succeeded: predicted '{pred_res['predicted_class']}' "
                 f"(index {pred_res['predicted_index']}) with confidence {pred_res['confidence']:.4f}."
             )
+            print(f"       Preprocessed tensor shape: {prep_img.shape}, dtype: {prep_img.dtype}")
             passed_count += 1
         else:
             print(f"[FAIL] Sample prediction output did not meet schema expectations: {pred_res}")
