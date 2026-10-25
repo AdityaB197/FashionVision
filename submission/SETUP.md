@@ -1,6 +1,6 @@
-# Setup and Reproduction Guide — FashionVision
+# Setup and Reproduction Guide — FashionVision v2
 
-This document provides step-by-step instructions to set up, run, and verify the **FashionVision** project on Windows, macOS, and Linux.
+This document provides step-by-step instructions to set up, run, and verify the **FashionVision v2** project on Windows, macOS, and Linux.
 
 ---
 
@@ -72,59 +72,59 @@ This document provides step-by-step instructions to set up, run, and verify the 
 
 To verify that the complete machine learning pipeline, dataset ingestion, tensor preprocessing, and model inference are operating correctly:
 
-### 2.1 Run the Full Pytest Suite (11 Tests)
+### 2.1 Run the Full Pytest Suite (10 Tests)
 ```bash
 python -m pytest -v
 ```
 - **Tests Covered**:
-  - `tests/test_preprocessing.py`: Batch tensor shapes, float32 precision, [0.0, 1.0] scaling, single-image dimension expansion, boundary mapping (0 -> 0.0, 255 -> 1.0), input immutability, and class name consistency (10 unique entries).
-  - `tests/test_inference.py`: PIL image format handling (Grayscale, RGB, RGBA), invert logic idempotency, top-k ranking and score ordering with mock model, JSON serializability, and real artifact integration tests.
+  - `tests/test_preprocessing.py`: RGB output shapes `(1, 224, 224, 3)`, float32 precision, `[0.0, 255.0]` tensor range, RGBA alpha flattening to RGB, grayscale-to-RGB expansion, and EXIF transposition safety.
+  - `tests/test_inference.py`: Output properties across arbitrary PIL formats (Grayscale, RGB, RGBA), top-k score ordering and ranking with mock model, and real artifact integration tests against `models/real_model.keras`.
 
-### 2.2 Run the Comprehensive System Verifier (25 Checks)
+### 2.2 Run the Comprehensive System Verifier (24 Checks)
 ```bash
 python scripts/verify_project.py
 ```
 - **Checks Performed**:
-  - Validates presence of all 19 required repository files and folders.
+  - Validates presence of all mandatory repository files, models, and results.
   - Verifies presence of documentation files (`README.md`, `docs/ARCHITECTURE.md`, `docs/REPORT_OUTLINE.md`, `notebooks/colab_train.ipynb`).
-  - Verifies that `models/class_names.json` matches `src.data.CLASS_NAMES` exactly.
-  - Executes an end-to-end sample prediction through the real trained model, validating the output schema and confidence bounds.
+  - Executes an end-to-end sample prediction through the real MobileNetV2 model using a synthetic `(1, 224, 224, 3)` RGB tensor, validating the output schema and confidence bounds.
 
 ---
 
-## 3. Command-Line Sanity Checks
+## 3. Command-Line Inference Sanity Check
 
-### 3.1 FashionVision v1 (Fashion-MNIST CNN)
 ```bash
 python scripts/check_inference.py
 ```
-- Loads `models/fashion_cnn.keras`, runs predictions on the first 20 images of the test set, compares against true labels, and verifies preprocessing consistency.
-
-### 3.2 FashionVision v2 (MobileNetV2 Real Clothing Classifier)
-```bash
-python scripts/check_real_inference.py
-```
-- Loads `models_v2/real_model.keras` (when present), tests real photographic downsampling, and verifies that arbitrary RGBA inputs are converted to shape `(1, 224, 224, 3)`.
+- Loads `models/real_model.keras`, tests real photographic downsampling, and verifies that arbitrary RGBA/RGB inputs are properly converted to shape `(1, 224, 224, 3)` with valid top-k class rankings.
 
 ---
 
-## 4. Reproducing Model Training
+## 4. Reproducing Model Training Pipeline
 
-### 4.1 FashionVision v1 Training
-The v1 model was trained on Google Colab using a GPU in under 60 seconds:
-- **Notebook**: Open and execute `notebooks/colab_training.ipynb` (or run `python scripts/train_model.py` locally).
-- **Evaluation**: `python scripts/evaluate_model.py` recomputes all metrics and regenerates `results/` plots.
+Training can be performed locally or via Google Colab with GPU acceleration.
 
-### 4.2 FashionVision v2 Training (Colab GPU Recommended)
-1. Prepare data with:
-   ```bash
-   python scripts/prepare_real_data.py --output-dir data/clothing_prepared
-   ```
-2. Train head and fine-tune:
-   ```bash
-   python scripts/train_real.py --data-dir data/clothing_prepared --epochs-head 10 --epochs-finetune 10
-   ```
-3. Evaluate test split:
-   ```bash
-   python scripts/evaluate_real.py --data-dir data/clothing_prepared
-   ```
+### 4.1 Step 1: Data Preparation
+Download and organize the Kaggle real clothing dataset (`agrigorev/clothing-dataset-full`) into train, validation, and test splits:
+```bash
+python scripts/prepare_data.py --output-dir data/clothing_prepared
+```
+
+### 4.2 Step 2: Two-Stage Transfer Learning
+Execute the two-stage training pipeline (Stage 1: frozen backbone head training; Stage 2: unfreezing the top 30 layers with fine-tuning):
+```bash
+python scripts/train_model.py --data-dir data/clothing_prepared --output-dir . --epochs-head 10 --epochs-finetune 10 --batch-size 32
+```
+This saves the trained weights to `models/real_model.keras`, `models/class_names.json`, and `models/metadata.json`.
+
+### 4.3 Step 3: Test Split Evaluation
+Compute comprehensive classification metrics, confusion matrices, and misclassified example galleries on the held-out test split:
+```bash
+python scripts/evaluate_model.py --data-dir data/clothing_prepared --output-dir .
+```
+All evaluation artifacts are automatically written to `results/`.
+
+### 4.4 Google Colab (Recommended for GPU Acceleration)
+- Open `notebooks/colab_train.ipynb` on [Google Colab](https://colab.research.google.com).
+- Set runtime to **T4 GPU** (`Runtime > Change runtime type > T4 GPU`).
+- Run all cells to download data, train MobileNetV2, evaluate test metrics, and export the generated artifacts.

@@ -29,7 +29,7 @@ def load_datasets(data_dir, img_size=(224, 224), batch_size=32, seed=42,
         if not split_path.is_dir():
             raise FileNotFoundError(
                 f"Missing {split_name} directory at '{split_path.resolve()}'. "
-                f"Please run scripts/prepare_real_data.py first."
+                f"Please run scripts/prepare_data.py first."
             )
 
     # --- Train split ---
